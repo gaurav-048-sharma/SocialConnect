@@ -6,8 +6,9 @@ import cookieParser from "cookie-parser"
 import userRoute from "./routes/user.routes.js"
 import postRoute from "./routes/post.route.js"
 import messageRoute from "./routes/message.route.js"
+import {app, server} from './socket/socket.js'
 const PORT = process.env.PORT || 3000;
-const app = express();
+
 import connectDb from "./utils/connectDb.js"
 app.get("/", (req, res) =>{
     return res.status(200).json({
@@ -33,7 +34,7 @@ app.use("/api/v1/post",postRoute)
 app.use("/api/v1/message",messageRoute)
 
 
-app.listen(PORT, (req, res) => {
+server.listen(PORT, (req, res) => {
     connectDb();
     console.log(`Server listen on http://localhost:${PORT}`);
     

@@ -3,6 +3,8 @@ import cloudinary from "../utils/cloudinary.js";
 import { Post } from "../models/post.model.js";
 import { User } from "../models/user.model.js";
 import { Comment } from "../models/comment.model.js";
+import { getReceiverSocketId, io } from "../socket/socket.js";
+
 
 
 export const addNewPost = async (req, res) => {
@@ -48,11 +50,11 @@ export const addNewPost = async (req, res) => {
         const user = await User.findById(authorId);
         if (user) {
             user.posts.push(post._id);
-            await user.save(); // Fixed: Save the user instance
+            await user.save(); // Save the user instance
         }
 
         // Populate author details (excluding password)
-        await post.populate({paths:"author", select:"-password"}).execPopulate();
+        await post.populate({ path: "author", select: "-password" });
 
         return res.status(200).json({
             message: "New post added",
@@ -67,7 +69,6 @@ export const addNewPost = async (req, res) => {
         });
     }
 };
-
 
 // export const addNewPost = async (req, res) => {
 //     try {
@@ -113,7 +114,7 @@ export const addNewPost = async (req, res) => {
 export const getAllPost = async (req, res) => {
     try {
         const posts = await Post.find().sort({createdAt:-1})
-        .populate({path:'author', select:'username, profilePicture'})
+        .populate({path:'author', select:'username profilePicture'})
         .populate({
             path:'comments', 
             sort:{createdAt:-1},
@@ -131,28 +132,63 @@ export const getAllPost = async (req, res) => {
     }
 };
 
+// export const getUserPost = async (req, res) => {
+//     try {
+//         const authorId = req.id;
+//         const posts = await Post.find({author:authorId}).sort({createdAt:-1}).populate({
+//             path:'author',
+//             select:'username profilePicture'
+//         }).populate({
+//             path:'comments', 
+//             sort:{createdAt:-1},
+//             populate: {
+//                 path:'author',
+//                 select:'username profilePicture',
+//             }
+//         })
+//         return res.status(200).json({
+//             posts,
+//             success:true
+//         })
+//     } catch (error) {
+//         console.log(error)
+//     }
+// }
+
 export const getUserPost = async (req, res) => {
     try {
         const authorId = req.id;
-        const posts = await Post.find({author:authorId}).sort({createdAt:-1}).populate({
-            path:'author',
-            select:'username, profilePicture'
-        }).populate({
-            path:'comments', 
-            sort:{createdAt:-1},
-            populate: {
-                path:'author',
-                select:'username profilePicture',
-            }
-        })
+
+        // Fetch posts authored by the current user
+        const posts = await Post.find({ author: authorId })
+            .sort({ createdAt: -1 })
+            .populate({
+                path: 'author',
+                select: 'username profilePicture', // Populate author's username and profile picture
+            })
+            .populate({
+                path: 'comments', // Populate comments
+                options: { sort: { createdAt: -1 } }, // Sort comments by creation date
+                populate: {
+                    path: 'author', // Populate author details inside comments
+                    select: 'username profilePicture',
+                },
+            });
+
+        // Respond with the populated posts
         return res.status(200).json({
             posts,
-            success:true
-        })
+            success: true,
+        });
     } catch (error) {
-        console.log(error)
+        console.error(error);
+        return res.status(500).json({
+            message: "Internal server error",
+            success: false,
+        });
     }
-}
+};
+
 
 export const likePost = async (req, res) => {
     try {
@@ -166,6 +202,20 @@ export const likePost = async (req, res) => {
         await post.save();
 
         //implementing socket.io for real time notification
+        const user = await User.findById(likeUserId).select('username profilePicture')
+        const postOwnerId = post.author.toString();
+        if(postOwnerId !== likeUserId) {
+            //emit notification
+            const notification = {
+                type: 'like',
+                userId: likeUserId,
+                userDetails:user,
+                postId,
+                message:'Your post was liked'
+            }
+            const postOwnerSocketId = getReceiverSocketId(postOwnerId);
+            io.to(postOwnerSocketId).emit('notification', notification);
+        }  
 
         return res.status(200).json({
             message:"Post Liked",
@@ -188,6 +238,20 @@ export const dislikePost = async (req, res) => {
         await post.save();
 
         //implementing socket.io for real time notification
+        const user = await User.findById(dislikeUserId).select('username profilePicture')
+        const postOwnerId = post.author.toString();
+        if(postOwnerId !== dislikeUserId) {
+            //emit notification
+            const notification = {
+                type: 'dislike',
+                userId: dislikeUserId,
+                userDetails:user,
+                postId,
+                message:'Your post was disliked'
+            }
+            const postOwnerSocketId = getReceiverSocketId(postOwnerId);
+            io.to(postOwnerSocketId).emit('notification', notification);
+        }  
 
         return res.status(200).json({
             message:"Post disliked",
@@ -205,19 +269,22 @@ export const addComment = async (req,res) => {
 
         const {text} = req.body;
         const post = await Post.findById(postId);
-        if(!test) return res.status(400).json({message:"Text is required" , success:false});
+        if(!text) return res.status(400).json({message:"Text is required" , success:false});
 
         const comment = await Comment.create({
             text,
             author:commentUserId,
             post:postId
-        }).populate({
+        })
+
+        await comment.populate({
             path:'author',
-            select:"username, profilePicture"
+            select:"username profilePicture"
         });
+
         post.comments.push(comment._id);
         await post.save();
-        return res.status(20``).json({
+        return res.status(201).json({
             message:"Comment Added",
             comment,
             success:true
@@ -230,7 +297,7 @@ export const addComment = async (req,res) => {
 export const getCommentsOfPost = async (req,res) => {
     try {
         const postId = req.params.id;
-        const comments = await Comment.find({post:postId}).populate('author', 'username, profilePicture');
+        const comments = await Comment.find({post:postId}).populate('author', 'username profilePicture');
 
         if(!comments) return res.status(404).json({
             message:"No comments found for this post",
@@ -266,7 +333,7 @@ export const deletePost = async (req, res) => {
         await user.save();
 
         //delete associated comments
-        await Comment.deletMany({post:postId});
+        await Comment.deleteMany({post:postId});
 
         return res.status(200).json({
             success:true,
