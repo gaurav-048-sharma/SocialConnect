@@ -7,15 +7,22 @@ import userRoute from "./routes/user.routes.js"
 import postRoute from "./routes/post.route.js"
 import messageRoute from "./routes/message.route.js"
 import {app, server} from './socket/socket.js'
-const PORT = process.env.PORT || 3000;
+
+import path from 'path';
 
 import connectDb from "./utils/connectDb.js"
-app.get("/", (req, res) =>{
-    return res.status(200).json({
-        message: "Hello, World!",
-        success: true
-    })
-})
+// app.get("/", (req, res) =>{
+//     return res.status(200).json({
+//         message: "Hello, World!",
+//         success: true
+//     })
+// })
+
+
+const PORT = process.env.PORT || 3000;
+
+const __dirname = path.resolve();
+
 
 //middlewares
 app.use(express.json());
@@ -32,6 +39,11 @@ app.use(cors(corsOptions));
 app.use("/api/v1/user", userRoute)
 app.use("/api/v1/post",postRoute)
 app.use("/api/v1/message",messageRoute)
+
+app.use(express.static(path.join(__dirname, "/frontend/dist")))
+app.get("*", (req,res) => {
+    res.sendFile(path.resolve(__dirname, "frontend", "dist", "index.html"))
+})
 
 
 server.listen(PORT, (req, res) => {
